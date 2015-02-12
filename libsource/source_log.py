@@ -32,34 +32,35 @@ import re
 import socket
 import asyncore
 
-PACKETSIZE=1400
+PACKETSIZE = 1400
 
 # --- Regular Expressions: ---
+# pylint: disable=line-too-long
 
 TOKEN = {
-    'address': '(?P<ip>[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})(|:(?P<port>[0-9]+))',
-    'attacker': '(?P<attacker_name>.*?)<(?P<attacker_uid>[0-9]*)><(?P<attacker_steamid>(Console|BOT|STEAM_[01]:[01]:[0-9]{1,12}))><(?P<attacker_team>[^<>"]*)>',
-    'class': '(?P<class>[^"]+)',
-    'command': '(?P<command>.*)',
-    'key': '(?P<key>[^"]+)',
-    'map': '(?P<map>[^"]+)',
-    'message': '(?P<message>.*)',
-    'name': '(?P<name>.*)',
-    'numplayers': '(?P<numplayers>[0-9]+)',
-    'player': '(?P<player_name>.*?)<(?P<player_uid>[0-9]*)><(?P<player_steamid>(Console|BOT|STEAM_[01]:[01]:[0-9]{1,12}))><(?P<player_team>[^<>"]*)>',
-    'position': '^(?P<x>-?[0-9]+) (?P<y>-?[0-9]+) (?P<z>-?[0-9]+)',
-    'property': ' \((?P<property_key>[^() ]+) "(?P<property_value>[^"]*)"\)',
-    'propertybug': '(?P<rest>.*" disconnected) \((?P<property_key>reason) "(?P<proprety_value>[^"]*)',
-    'reason': '(?P<reason>.*)',
-    'rest': '(?P<rest>.*)',
-    'score': '(?P<score>-?[0-9]+)',
-    'team': '(?P<team>[^"]+)',
-    'timestamp': '(?P<month>[0-9]{2})/(?P<day>[0-9]{2})/(?P<year>[0-9]{4}) - (?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2}): ',
-    'trigger': '(?P<trigger>[^"]+)',
-    'type': '(?P<type>RL|L) ',
-    'value': '(?P<value>.*)',
-    'victim': '(?P<victim_name>.*?)<(?P<victim_uid>[0-9]*)><(?P<victim_steamid>(Console|BOT|STEAM_[01]:[01]:[0-9]{1,12}))><(?P<victim_team>[^<>"]*)>',
-    'weapon': '(?P<weapon>[^"]+)',
+    'address': r'(?P<ip>[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})(|:(?P<port>[0-9]+))',
+    'attacker': r'(?P<attacker_name>.*?)<(?P<attacker_uid>[0-9]*)><(?P<attacker_steamid>(Console|BOT|STEAM_[01]:[01]:[0-9]{1,12}))><(?P<attacker_team>[^<>"]*)>',
+    'class': r'(?P<class>[^"]+)',
+    'command': r'(?P<command>.*)',
+    'key': r'(?P<key>[^"]+)',
+    'map': r'(?P<map>[^"]+)',
+    'message': r'(?P<message>.*)',
+    'name': r'(?P<name>.*)',
+    'numplayers': r'(?P<numplayers>[0-9]+)',
+    'player': r'(?P<player_name>.*?)<(?P<player_uid>[0-9]*)><(?P<player_steamid>(Console|BOT|STEAM_[01]:[01]:[0-9]{1,12}))><(?P<player_team>[^<>"]*)>',
+    'position': r'^(?P<x>-?[0-9]+) (?P<y>-?[0-9]+) (?P<z>-?[0-9]+)',
+    'property': r' \((?P<property_key>[^() ]+) "(?P<property_value>[^"]*)"\)',
+    'propertybug': r'(?P<rest>.*" disconnected) \((?P<property_key>reason) "(?P<proprety_value>[^"]*)',
+    'reason': r'(?P<reason>.*)',
+    'rest': r'(?P<rest>.*)',
+    'score': r'(?P<score>-?[0-9]+)',
+    'team': r'(?P<team>[^"]+)',
+    'timestamp': r'(?P<month>[0-9]{2})/(?P<day>[0-9]{2})/(?P<year>[0-9]{4}) - (?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2}): ',
+    'trigger': r'(?P<trigger>[^"]+)',
+    'type': r'(?P<type>RL|L) ',
+    'value': r'(?P<value>.*)',
+    'victim': r'(?P<victim_name>.*?)<(?P<victim_uid>[0-9]*)><(?P<victim_steamid>(Console|BOT|STEAM_[01]:[01]:[0-9]{1,12}))><(?P<victim_team>[^<>"]*)>',
+    'weapon': r'(?P<weapon>[^"]+)',
 }
 
 REHEADER = re.compile('^'+TOKEN['type']+TOKEN['timestamp']+TOKEN['rest']+'$', re.U)
@@ -103,26 +104,36 @@ REVALUE = [
     ['player', re.compile('^'+TOKEN['player']+'$', re.U)],
     ['position', re.compile('^'+TOKEN['position']+'$', re.U)],
 ]
+# pylint: enable=line-too-long
 
 class SourceLogParser(object):
+    """Parse source log files.
+    """
     def __init__(self):
         self.rules = False
 
-    def parse_value(self, key, value):
-        for k, v in REVALUE:
-            match = v.match(value)
+    @staticmethod
+    def parse_value(value):
+        """Parse log entries
+        """
+        for k, value in REVALUE:
+            match = value.match(value)
 
             if match:
-                r = match.groupdict()
-                r['type'] = k
-                return r
+                re_value = match.groupdict()
+                re_value['type'] = k
+                return re_value
 
         return value
 
     def action(self, remote, timestamp, key, value, properties):
+        """A nothing-doer?
+        """
         pass
 
     def parse(self, line):
+        """Line parser
+        """
         line = line.strip('\x00\xff\r\n\t ')
 
         # parse header (type and date)
@@ -138,7 +149,9 @@ class SourceLogParser(object):
         if match.group('type') == 'RL':
             remote = True
 
-        timestamp = map(int, match.group('year', 'month', 'day', 'hour', 'minute', 'second'))
+        timestamp = [int(i) for i in match.group(
+            'year', 'month', 'day', 'hour', 'minute', 'second'
+        )]
 
         # parse properties (key "value"), optional
         properties = {}
@@ -152,7 +165,7 @@ class SourceLogParser(object):
             line = match.group('rest')
             key = match.group('property_key')
             value = match.group('property_value')
-            value = self.parse_value(key, value)
+            value = SourceLogParser.parse_value(value)
             properties[key] = value
 
         # TF2 Bug - should be a property, but ") is missing
@@ -162,12 +175,12 @@ class SourceLogParser(object):
             line = match.group('rest')
             key = match.group('property_key')
             value = match.group('property_value')
-            value = self.parse_value(key, value)
+            value = SourceLogParser.parse_value(value)
             properties[key] = value
 
         # parse the log entry
-        for k, v in RELOG:
-            match = v.match(line)
+        for k, value in RELOG:
+            match = value.match(line)
 
             if match:
                 self.action(remote, timestamp, k, match.groupdict(), properties)
@@ -197,15 +210,21 @@ class SourceLogParser(object):
         self.action(remote, timestamp, 'unknown', line, properties)
 
     def parse_file(self, filename):
-        f = open(filename, 'r')
+        """Open file path and parse.
+        """
+        file_handle = open(filename, 'r')
 
-        for line in f:
+        for line in file_handle:
             self.parse(line)
 
 class SourceLogListenerError(Exception):
+    """Module specific error.
+    """
     pass
 
 class SourceLogListener(asyncore.dispatcher):
+    """Realtime log monitor.
+    """
     def __init__(self, local, remote, parser):
         asyncore.dispatcher.__init__(self)
         self.parser = parser
