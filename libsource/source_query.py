@@ -33,34 +33,45 @@
 import socket
 import time
 
-from packet import PacketBuffer
-from server import Server
+from libsource.packet import PacketBuffer
+from libsource.server import Server
 
 PACKET_SIZE = 1400
 PACKET_HEAD = -1
 PACKET_SPLIT = -2
+MAX_LOOPS = 3
 
-
-class PacketType:
+class PacketType(object):
+    """PacketType
+    """
     Info, Challenge, Players, Rules = range(4)
 
 
-class RequestType:
+class RequestType(object):
+    """RequestType
+    """
     Info = 'TSource Engine Query'
     Challenge = -1
     Players = 0x55
     Rules = 0x56
 
 
-class ResponseType:
+class ResponseType(object):
+    """ResponseType
+    """
     Info = 0x49
     Challenge = 0x41
     Players = 0x44
     Rules = 0x45
 
 
-class PacketFactory:
+class PacketFactory(object):
+    """PacketFactory
+    """
+    @staticmethod
     def create(packet_type):
+        """Instantiates PacketBuffer from PacketType
+        """
         packet = PacketBuffer()
         packet.put_long(PACKET_HEAD)
 
@@ -79,7 +90,7 @@ class PacketFactory:
         return packet
 
 
-class SourceQuery:
+class SourceQuery(object):
     """
     Example usage:
 
@@ -91,6 +102,8 @@ class SourceQuery:
     print server.rules()
     """
 
+    _connection = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
     def __init__(self, host, port=27015, timeout=1):
         self.server = Server(socket.gethostbyname(host), port)
         self._timeout = timeout
@@ -101,18 +114,25 @@ class SourceQuery:
         self._connection.close()
 
     def _connect(self):
-        self._connection = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        """Open connection.
+        """
         self._connection.settimeout(self._timeout)
         self._connection.connect(self.server.as_tuple())
 
     def _query(self, packet, challenge=False):
+        """Do query.
+        """
         if challenge:
             packet.put_long(self._get_challenge())
 
         self._connection.send(packet.getvalue())
         return self._receive()
 
-    def _receive(self, packet_buffer={}):
+    def _receive(self, packet_buffer=None):
+        """Receive things?
+        """
+        if not packet_buffer:
+            packet_buffer = dict()
         packet = PacketBuffer(self._connection.recv(PACKET_SIZE))
         packet_type = packet.get_long()
 
@@ -127,8 +147,10 @@ class SourceQuery:
 
             total_packets = packet.get_byte()
             current_packet_number = packet.get_byte()
-            paket_size = packet.get_short()
-            packet_buffer[request_id].insert(current_packet_number, packet.read())
+            packet.get_short()
+            packet_buffer[request_id].insert(
+                current_packet_number, packet.read()
+            )
 
             if current_packet_number == total_packets - 1:
                 full_packet = PacketBuffer(b''.join(packet_buffer[request_id]))
@@ -139,6 +161,8 @@ class SourceQuery:
                 return self._receive(packet_buffer)
 
     def _get_challenge(self):
+        """Get challenge.
+        """
         if self._challenge != RequestType.Challenge:
             return self._challenge
 
@@ -149,12 +173,15 @@ class SourceQuery:
             return self._challenge
 
     def ping(self):
-        MAX_LOOPS = 3
-        return round(sum(map(lambda ping: self.info()['ping'],
-                             range(MAX_LOOPS))) / MAX_LOOPS, 2)
+        """Pong!"""
+        requests = [self.info()['ping'] for _ in range(MAX_LOOPS)]
+        ping = round(sum(requests) / MAX_LOOPS, 2)
+        return ping
 
 
     def info(self):
+        """Get info about current state
+        """
         timer_start = time.time()
         packet = self._query(PacketFactory.create(PacketType.Info))
         timer_end = time.time()
@@ -179,7 +206,7 @@ class SourceQuery:
 
             try:
                 result['extra_data_flag'] = packet.get_byte()
-            except:
+            except Exception:
                 pass
             else:
                 if result['extra_data_flag'] & 0x80:
@@ -193,21 +220,23 @@ class SourceQuery:
                     result['server_tags'] = packet.get_string()
                 if result['extra_data_flag'] & 0x01:
                     result['server_game_id'] = packet.get_long_long()
-            finally:
-                result['server_ip'] =  self.server.ip
-                result['ping'] = round((timer_end - timer_start) * 1000, 2)
-                result['players_human'] = result['players_current'] \
-                                          - result['players_bot']
-                return result
+
+            result['server_ip'] = self.server.ip
+            result['ping'] = round((timer_end - timer_start) * 1000, 2)
+            result['players_human'] = result['players_current'] \
+                                      - result['players_bot']
+            return result
 
     def players(self):
+        """Get player list.
+        """
         packet = self._query(PacketFactory.create(PacketType.Players), True)
 
         if packet.get_byte() == ResponseType.Players:
             total_players = packet.get_byte()
             player_list = []
 
-            for i in range(total_players):
+            for _ in range(total_players):
                 player = {
                     'index': packet.get_byte(),
                     'name': packet.get_string(),
@@ -219,13 +248,15 @@ class SourceQuery:
             return player_list
 
     def rules(self):
+        """Get rules list.
+        """
         packet = self._query(PacketFactory.create(PacketType.Rules), True)
 
         if packet.get_byte() == ResponseType.Rules:
             rules = {}
             total_rules = packet.get_short()
 
-            for i in range(total_rules):
+            for _ in range(total_rules):
                 rules.setdefault(packet.get_string(), packet.get_string())
 
             return rules
