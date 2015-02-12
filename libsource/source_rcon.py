@@ -34,10 +34,12 @@ SERVERDATA_AUTH_RESPONSE = 2
 SERVERDATA_EXECCOMMAND = 2
 SERVERDATA_RESPONSE_VALUE = 0
 
-MAX_COMMAND_LENGTH=510 # found by trial & error
+MAX_COMMAND_LENGTH = 510 # found by trial & error
 
-MIN_MESSAGE_LENGTH=4+4+1+1 # command (4), id (4), string1 (1), string2 (1)
-MAX_MESSAGE_LENGTH=4+4+4096+1 # command (4), id (4), string (4096), string2 (1)
+# command (4), id (4), string1 (1), string2 (1)
+MIN_MESSAGE_LENGTH = 4+4+1+1
+# command (4), id (4), string (4096), string2 (1)
+MAX_MESSAGE_LENGTH = 4+4+4096+1
 
 # there is no indication if a packet was split, and they are split by lines
 # instead of bytes, so even the size of split packets is somewhat random.
@@ -45,7 +47,12 @@ MAX_MESSAGE_LENGTH=4+4+4096+1 # command (4), id (4), string (4096), string2 (1)
 # extra packet that may never come if the previous packet was this large.
 PROBABLY_SPLIT_IF_LARGER_THAN = MAX_MESSAGE_LENGTH - 400
 
+CONN_REMOTE_CLOSED = 'RCON connection unexpectedly closed by remote host'
+
+
 class SourceRconError(Exception):
+    """Module-specific error class
+    """
     pass
 
 class SourceRcon(object):
@@ -74,13 +81,17 @@ class SourceRcon(object):
         self.tcp.settimeout(self.timeout)
         self.tcp.connect((self.host, self.port))
 
-    def send(self, cmd, message):
-        """Send command and message to the server. Should only be used internally."""
+    def _send(self, cmd, message):
+        """Send command and message to the server.
+        Should only be used internally.
+        """
         if len(message) > MAX_COMMAND_LENGTH:
             raise SourceRconError('RCON message too large to send')
 
         self.reqid += 1
-        data = struct.pack('<l', self.reqid) + struct.pack('<l', cmd) + message + '\x00\x00'
+        data = struct.pack('<l', self.reqid) \
+            + struct.pack('<l', cmd) \
+            + message + '\x00\x00'
         self.tcp.send(struct.pack('<l', len(data)) + data)
 
     def receive(self):
@@ -101,7 +112,7 @@ class SourceRcon(object):
                 try:
                     recv = self.tcp.recv(4 - len(buf))
                     if not len(recv):
-                        raise SourceRconError('RCON connection unexpectedly closed by remote host')
+                        raise SourceRconError(CONN_REMOTE_CLOSED)
                     buf += recv
                 except SourceRconError:
                     raise
@@ -114,8 +125,14 @@ class SourceRcon(object):
 
             packetsize = struct.unpack('<l', buf)[0]
 
-            if packetsize < MIN_MESSAGE_LENGTH or packetsize > MAX_MESSAGE_LENGTH:
-                raise SourceRconError('RCON packet claims to have illegal size: %d bytes' % (packetsize,))
+            if any([
+                packetsize < MIN_MESSAGE_LENGTH,
+                packetsize > MAX_MESSAGE_LENGTH
+            ]):
+                raise SourceRconError(
+                    'RCON packet claims to have illegal size: %d bytes'
+                    % (packetsize,)
+                )
 
             # read the whole packet
             buf = ''
@@ -124,7 +141,7 @@ class SourceRcon(object):
                 try:
                     recv = self.tcp.recv(packetsize - len(buf))
                     if not len(recv):
-                        raise SourceRconError('RCON connection unexpectedly closed by remote host')
+                        raise SourceRconError(CONN_REMOTE_CLOSED)
                     buf += recv
                 except SourceRconError:
                     raise
@@ -132,7 +149,10 @@ class SourceRcon(object):
                     break
 
             if len(buf) != packetsize:
-                raise SourceRconError('Received RCON packet with bad length (%d of %d bytes)' % (len(buf),packetsize,))
+                raise SourceRconError(
+                    'Received RCON packet with bad length (%d of %d bytes)'
+                    % (len(buf), packetsize,)
+                )
 
             # parse the packet
             requestid = struct.unpack('<l', buf[:4])[0]
@@ -142,7 +162,10 @@ class SourceRcon(object):
                 raise SourceRconError('Bad RCON password')
 
             elif requestid != self.reqid:
-                raise SourceRconError('RCON request id error: %d, expected %d' % (requestid,self.reqid,))
+                raise SourceRconError(
+                    'RCON request id error: %d, expected %d'
+                    % (requestid, self.reqid,)
+                )
 
             response = struct.unpack('<l', buf[4:8])[0]
 
@@ -151,7 +174,9 @@ class SourceRcon(object):
                 return True
 
             elif response != SERVERDATA_RESPONSE_VALUE:
-                raise SourceRconError('Invalid RCON command response: %d' % (response,))
+                raise SourceRconError(
+                    'Invalid RCON command response: %d' % (response,)
+                )
 
             # extract the two strings using index magic
             str1 = buf[8:]
@@ -161,7 +186,10 @@ class SourceRcon(object):
             crap = str2[pos2+1:]
 
             if crap:
-                raise SourceRconError('RCON response contains %d superfluous bytes' % (len(crap),))
+                raise SourceRconError(
+                    'RCON response contains %d superfluous bytes'
+                    % (len(crap),)
+                )
 
             # add the strings to the full message result
             message += str1[:pos1]
@@ -171,37 +199,47 @@ class SourceRcon(object):
             poll = select.select([self.tcp], [], [], 0)
 
             if not len(poll[0]) and packetsize < PROBABLY_SPLIT_IF_LARGER_THAN:
-                # no packets waiting, previous packet wasn't large: let's stop here.
+                # no packets waiting, previous packet wasn't large:
+                # let's stop here.
                 break
 
         if response is False:
             raise SourceRconError('Timed out while waiting for reply')
 
         elif message2:
-            raise SourceRconError('Invalid response message: %s' % (repr(message2),))
+            raise SourceRconError(
+                'Invalid response message: %s' % (repr(message2),)
+            )
 
         return message
+
+    @staticmethod
+    def _command_filter(command):
+        """Used to filter out bad commands."""
+        command = command.strip()
+        return len(command) and not command.startswith("//")
 
     def rcon(self, command):
         """Send RCON command to the server. Connect and auth if necessary,
            handle dropped connections, send command and return reply."""
         # special treatment for sending whole scripts
         if '\n' in command:
+            # todo: rebuild this block to use a regular for loop
+            # (or list comprehension)
             commands = command.split('\n')
-            def f(x): y = x.strip(); return len(y) and not y.startswith("//")
-            commands = filter(f, commands)
+            commands = filter(SourceRcon._command_filter, commands)
             results = map(self.rcon, commands)
             return "".join(results)
 
         # send a single command. connect and auth if necessary.
         try:
-            self.send(SERVERDATA_EXECCOMMAND, command)
+            self._send(SERVERDATA_EXECCOMMAND, command)
             return self.receive()
-        except:
+        except Exception:
             # timeout? invalid? we don't care. try one more time.
             self.disconnect()
             self.connect()
-            self.send(SERVERDATA_AUTH, self.password)
+            self._send(SERVERDATA_AUTH, self.password)
 
             auth = self.receive()
             # the first packet may be a "you have been banned" or empty string.
@@ -211,7 +249,9 @@ class SourceRcon(object):
 
             if auth is not True:
                 self.disconnect()
-                raise SourceRconError('RCON authentication failure: %s' % (repr(auth),))
+                raise SourceRconError(
+                    'RCON authentication failure: %s' % (repr(auth),)
+                )
 
-            self.send(SERVERDATA_EXECCOMMAND, command)
+            self._send(SERVERDATA_EXECCOMMAND, command)
             return self.receive()
