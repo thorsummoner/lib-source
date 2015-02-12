@@ -1,10 +1,17 @@
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
+
+"""Manipulate Packets.
+"""
 
 import io
 import struct
 
 
 class PacketBuffer(io.BytesIO):
+    """Manipulate packets as streams.
+    """
+    # pylint: disable=missing-docstring
     def __len__(self):
         return len(self.getvalue())
 
@@ -47,7 +54,11 @@ class PacketBuffer(io.BytesIO):
     def put_long_long(self, value):
         self.write(struct.pack('<Q', value))
 
+    # pylint: enable=missing-docstring
+
     def get_string(self):
+        """Return new bytes from stream.
+        """
         # TODO: find a more pythonic way doing this
         value = []
         while True:
@@ -56,9 +67,11 @@ class PacketBuffer(io.BytesIO):
                 break
             else:
                 value.append(char)
-        return ''.join(map(lambda char: chr(ord(char)), value))
+        return ''.join([chr(ord(char)) for char in value])
 
     def put_string(self, value):
+        """Write utf-8 strng into packet buffer.
+        """
         self.write(bytearray('{0}\x00'.format(value), 'utf-8'))
 
 
