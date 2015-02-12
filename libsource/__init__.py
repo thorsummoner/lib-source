@@ -24,6 +24,6 @@
 # THE SOFTWARE.
 #------------------------------------------------------------------------------
 
-import SourceQuery
-import SourceRcon
-import SourceLog
+import libsource.source_query
+import libsource.source_rcon
+import libsource.source_log
